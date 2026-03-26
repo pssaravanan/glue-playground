@@ -19,13 +19,13 @@ variable "app_name" {
 variable "task_cpu" {
   description = "ECS task CPU units (256, 512, 1024, 2048, 4096)"
   type        = number
-  default     = 512
+  default     = 1024 # 1 vCPU
 }
 
 variable "task_memory" {
   description = "ECS task memory in MiB"
   type        = number
-  default     = 1024
+  default     = 3072 # 134 MB CSV expands to ~500 MB in pandas; 3 GB gives safe headroom
 }
 
 variable "s3_input_key" {
