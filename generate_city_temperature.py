@@ -76,9 +76,9 @@ def delete_s3_prefix(s3_client, bucket: str, prefix: str) -> int:
     return deleted
 
 
-def write_date_partition(s3_client, bucket: str, city: str, date_str: str, rows: list[dict]) -> str:
-    """Write rows for one date to s3://bucket/raw/city=<city>/date=<date>/temperatures.csv"""
-    key = f"raw/city={city}/date={date_str}/temperatures.csv"
+def write_city_partition(s3_client, bucket: str, city: str, rows: list[dict]) -> str:
+    """Write all rows for a city to s3://bucket/raw/city=<city>/temperatures.csv"""
+    key = f"raw/city={city}/temperatures.csv"
     buf = io.StringIO()
     pd.DataFrame(rows).to_csv(buf, index=False)
     s3_client.put_object(Bucket=bucket, Key=key, Body=buf.getvalue(), ContentType="text/csv")
@@ -149,8 +149,8 @@ def extrapolate_30min_readings(
             log.info("[%s] Deleted %d existing object(s) under s3://%s/%s",
                      city, deleted, bucket, city_prefix)
 
-    slots_per_day  = 48
-    total_written  = 0
+    slots_per_day = 48
+    all_readings  = []
 
     for day_i in range(limit_days):
         row      = city_df.iloc[day_i]
@@ -159,11 +159,9 @@ def extrapolate_30min_readings(
         t_today    = row["AvgTemperature"]
         t_tomorrow = row_next["AvgTemperature"]
         base_date  = row["Date"]
-        date_str   = base_date.strftime("%Y-%m-%d")
         season     = get_season(base_date.month, southern)
         amplitude  = SEASON_AMPLITUDE[season]
 
-        daily_readings = []
         for slot in range(slots_per_day):
             frac   = slot / slots_per_day
             t_base = t_today + frac * (t_tomorrow - t_today)
@@ -171,7 +169,7 @@ def extrapolate_30min_readings(
             temp_f = sinusoidal_temp(t_base, amplitude, hour)
             temp_c = (temp_f - 32) * 5 / 9
 
-            daily_readings.append({
+            all_readings.append({
                 "timestamp":     (base_date + timedelta(minutes=30 * slot)).strftime("%Y-%m-%d %H:%M:%S"),
                 "region":        row["Region"],
                 "country":       row["Country"],
@@ -182,20 +180,20 @@ def extrapolate_30min_readings(
                 "temperature_c": round(temp_c, 4),
             })
 
-        if bucket:
-            key = write_date_partition(s3_client, bucket, city, date_str, daily_readings)
-            log.info("[%s] %s → s3://%s/%s (%d rows)", city, date_str, bucket, key, len(daily_readings))
-        else:
-            col = f"{'Timestamp':<22} {'City':<12} {'Season':<8} {'Temp °F':>9} {'Temp °C':>9}"
-            print(col)
-            print("-" * len(col))
-            for r in daily_readings:
-                print(
-                    f"{r['timestamp']:<22} {r['city']:<12} {r['season']:<8}"
-                    f" {r['temperature_f']:>9.2f} {r['temperature_c']:>9.2f}"
-                )
+    total_written = len(all_readings)
 
-        total_written += len(daily_readings)
+    if bucket:
+        key = write_city_partition(s3_client, bucket, city, all_readings)
+        log.info("[%s] → s3://%s/%s (%d rows)", city, bucket, key, total_written)
+    else:
+        col = f"{'Timestamp':<22} {'City':<12} {'Season':<8} {'Temp °F':>9} {'Temp °C':>9}"
+        print(col)
+        print("-" * len(col))
+        for r in all_readings:
+            print(
+                f"{r['timestamp']:<22} {r['city']:<12} {r['season']:<8}"
+                f" {r['temperature_f']:>9.2f} {r['temperature_c']:>9.2f}"
+            )
 
     log.info("[%s] Done — %d total readings written", city, total_written)
     return total_written
