@@ -159,6 +159,7 @@ def extrapolate_30min_readings(
                 f" {r['temperature_f']:>9.2f} {r['temperature_c']:>9.2f}"
             )
         print(f"\nTotal 30-min readings: {len(readings)}")
+        print("test commit")
 
     return readings
 
