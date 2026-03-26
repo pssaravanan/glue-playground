@@ -9,13 +9,13 @@ build/
 city_temperature.csv
 
 # Terraform
-terraform/.terraform/
-terraform/.terraform.lock.hcl
-terraform/terraform.tfstate
-terraform/terraform.tfstate.backup
-terraform/*.tfplan
-terraform/override.tf
-terraform/override.tf.json
+terraform/**/.terraform/
+terraform/**/.terraform.lock.hcl
+terraform/**/terraform.tfstate
+terraform/**/terraform.tfstate.backup
+terraform/**/*.tfplan
+terraform/**/override.tf
+terraform/**/override.tf.json
 
 # Benchmark results
 benchmark/results/*.json

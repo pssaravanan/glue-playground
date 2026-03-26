@@ -1,38 +1,38 @@
-# ---------------------------------------------------------------------------
-# Trino coordinator on ECS Fargate – conditional on var.enable_trino
-# Enable with: terraform apply -var="enable_trino=true"
-#
-# Uses the Glue catalog as metastore (no separate Hive needed).
-# Requires enable_glue_athena=true so the Glue database exists.
-# ---------------------------------------------------------------------------
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
 
-locals {
-  trino_config = var.enable_trino ? {
-    "config.properties" = <<-EOT
-      coordinator=true
-      node-scheduler.include-coordinator=true
-      http-server.http.port=8080
-      discovery.uri=http://localhost:8080
-    EOT
+provider "aws" {
+  region = var.aws_region
+}
 
-    "jvm.config" = <<-EOT
-      -server
-      -Xmx4G
-      -XX:+UseG1GC
-      -XX:G1HeapRegionSize=32M
-      -XX:+UseGCOverheadLimit
-      -XX:+ExplicitGCInvokesConcurrent
-      -XX:+HeapDumpOnOutOfMemoryError
-    EOT
+data "aws_s3_bucket" "output" {
+  bucket = var.s3_bucket
+}
 
-    # Hive connector pointing at the Glue catalog
-    "catalog/hive.properties" = <<-EOT
-      connector.name=hive
-      hive.metastore=glue
-      hive.metastore.glue.region=${var.aws_region}
-      hive.s3.region=${var.aws_region}
-    EOT
-  } : {}
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Reference the ECS cluster and execution role created by data_setup
+data "aws_ecs_cluster" "main" {
+  cluster_name = var.app_name
+}
+
+data "aws_iam_role" "execution" {
+  name = "${var.app_name}-execution-role"
 }
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,6 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "trino" {
-  count             = var.enable_trino ? 1 : 0
   name              = "/ecs/${var.app_name}-trino"
   retention_in_days = 7
 }
@@ -50,8 +49,7 @@ resource "aws_cloudwatch_log_group" "trino" {
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "trino_task" {
-  count = var.enable_trino ? 1 : 0
-  name  = "${var.app_name}-trino-task-role"
+  name = "${var.app_name}-trino-task-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -64,17 +62,16 @@ resource "aws_iam_role" "trino_task" {
 }
 
 resource "aws_iam_role_policy" "trino_glue_s3" {
-  count = var.enable_trino ? 1 : 0
-  name  = "${var.app_name}-trino-glue-s3"
-  role  = aws_iam_role.trino_task[0].id
+  name = "${var.app_name}-trino-glue-s3"
+  role = aws_iam_role.trino_task.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable",
-                    "glue:GetTables", "glue:GetPartition", "glue:GetPartitions"]
+        Effect = "Allow"
+        Action = ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable",
+                  "glue:GetTables", "glue:GetPartition", "glue:GetPartitions"]
         Resource = "*"
       },
       {
@@ -94,14 +91,13 @@ resource "aws_iam_role_policy" "trino_glue_s3" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_task_definition" "trino" {
-  count                    = var.enable_trino ? 1 : 0
   family                   = "${var.app_name}-trino"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 2048
   memory                   = 8192
-  execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.trino_task[0].arn
+  execution_role_arn       = data.aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.trino_task.arn
 
   container_definitions = jsonencode([{
     name      = "trino"
@@ -113,7 +109,7 @@ resource "aws_ecs_task_definition" "trino" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        awslogs-group         = aws_cloudwatch_log_group.trino[0].name
+        awslogs-group         = aws_cloudwatch_log_group.trino.name
         awslogs-region        = var.aws_region
         awslogs-stream-prefix = "ecs"
       }
@@ -126,7 +122,6 @@ resource "aws_ecs_task_definition" "trino" {
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "trino" {
-  count       = var.enable_trino ? 1 : 0
   name        = "${var.app_name}-trino-sg"
   description = "Trino coordinator"
   vpc_id      = data.aws_vpc.default.id
@@ -151,16 +146,15 @@ resource "aws_security_group" "trino" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_service" "trino" {
-  count           = var.enable_trino ? 1 : 0
   name            = "${var.app_name}-trino"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.trino[0].arn
+  cluster         = data.aws_ecs_cluster.main.arn
+  task_definition = aws_ecs_task_definition.trino.arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.trino[0].id]
+    security_groups  = [aws_security_group.trino.id]
     assign_public_ip = true
   }
 }
@@ -170,5 +164,5 @@ resource "aws_ecs_service" "trino" {
 # ---------------------------------------------------------------------------
 
 output "trino_service_name" {
-  value = var.enable_trino ? aws_ecs_service.trino[0].name : null
+  value = aws_ecs_service.trino.name
 }
