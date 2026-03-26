@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfplan
+terraform/override.tf
+terraform/override.tf.json
+
+# Data files (large CSV)
+city_temperature.csv
+
+# Environment / secrets
+.env
+*.env
+
+# macOS
+.DS_Store
