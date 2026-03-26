@@ -177,6 +177,10 @@ resource "aws_ecs_task_definition" "app" {
       {
         name  = "S3_BUCKET"
         value = var.s3_bucket
+      },
+      {
+        name  = "S3_INPUT_KEY"
+        value = var.s3_input_key
       }
     ]
 

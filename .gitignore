@@ -6,6 +6,7 @@ __pycache__/
 venv/
 dist/
 build/
+city_temperature.csv
 
 # Terraform
 terraform/.terraform/

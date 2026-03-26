@@ -27,3 +27,9 @@ variable "task_memory" {
   type        = number
   default     = 1024
 }
+
+variable "s3_input_key" {
+  description = "S3 key for the source city_temperature.csv file"
+  type        = string
+  default     = "city_temperature.csv"
+}

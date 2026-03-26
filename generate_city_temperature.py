@@ -49,10 +49,30 @@ def sinusoidal_temp(t_avg: float, amplitude: float, hour: float) -> float:
 # Main extrapolation
 # ---------------------------------------------------------------------------
 
+def load_dataframe() -> pd.DataFrame:
+    """
+    Load the source CSV from S3 (when S3_BUCKET + S3_INPUT_KEY are set)
+    or from a local path (CSV_PATH env var, default city_temperature.csv).
+    """
+    bucket    = os.environ.get("S3_BUCKET")
+    input_key = os.environ.get("S3_INPUT_KEY", "city_temperature.csv")
+
+    if bucket:
+        print(f"Reading s3://{bucket}/{input_key} ...")
+        obj = boto3.client("s3").get_object(Bucket=bucket, Key=input_key)
+        df  = pd.read_csv(io.BytesIO(obj["Body"].read()), low_memory=False)
+    else:
+        local_path = os.environ.get("CSV_PATH", "city_temperature.csv")
+        print(f"Reading local file: {local_path} ...")
+        df = pd.read_csv(local_path, low_memory=False)
+
+    return df[df["AvgTemperature"] > -99]
+
+
 def extrapolate_30min_readings(
-    csv_path: str,
-    city: str = None,
-    limit_days: int = 5,
+    df: pd.DataFrame,
+    city: str,
+    limit_days: int,
 ) -> list[dict]:
     """
     Generate a 30-minute temperature series from daily average readings.
@@ -67,15 +87,7 @@ def extrapolate_30min_readings(
         T(slot) = lerp(T_avg[day], T_avg[day+1], slot/48)
                   + A_season * sin(2π * (hour - 8) / 24)
     """
-    df = pd.read_csv(csv_path)
-    df = df[df["AvgTemperature"] > -99]          # -99 = missing sentinel
-
-    if city:
-        df = df[df["City"] == city]
-    else:
-        city = df["City"].iloc[0]
-        df = df[df["City"] == city]
-
+    df = df[df["City"] == city].copy()
     df["Date"] = pd.to_datetime(df[["Year", "Month", "Day"]])
     df = df.sort_values("Date").reset_index(drop=True)
 
@@ -153,13 +165,10 @@ def extrapolate_30min_readings(
 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    CSV_PATH = "city_temperature.csv"
+    # Load CSV once from S3 (or local fallback)
+    _df = load_dataframe()
 
-    # Load once to discover cities and their available day counts
-    _df = pd.read_csv(CSV_PATH, low_memory=False)
-    _df = _df[_df["AvgTemperature"] > -99]
-
-    # days per city (need at least 2 rows: one day + one next-day for blending)
+    # days per city (need at least 2 rows: today + next-day for blending)
     city_days = (
         _df.groupby("City").size()
         .rename("days")
@@ -170,11 +179,11 @@ if __name__ == "__main__":
     all_readings = []
     for _, row in city_days.iterrows():
         city_name = row["City"]
-        limit     = int(row["days"]) - 1   # -1 because function needs a "next day" row
+        limit     = int(row["days"]) - 1
 
         print(f"\n=== {city_name} ({limit} days) ===")
         readings = extrapolate_30min_readings(
-            csv_path=CSV_PATH,
+            df=_df,
             city=city_name,
             limit_days=limit,
         )
