@@ -17,6 +17,10 @@ terraform/*.tfplan
 terraform/override.tf
 terraform/override.tf.json
 
+# Benchmark results
+benchmark/results/*.json
+benchmark/results/*.csv
+
 # Data files (large CSV)
 city_temperature.csv
 

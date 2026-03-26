@@ -199,7 +199,7 @@ resource "aws_codebuild_project" "docker_build" {
         build:
           commands:
             - echo Building Docker image...
-            - docker build -t $ECR_REPO_URI:$IMAGE_TAG .
+            - docker build -t $ECR_REPO_URI:$IMAGE_TAG data_setup/
             - docker tag $ECR_REPO_URI:$IMAGE_TAG $ECR_REPO_URI:latest
         post_build:
           commands:

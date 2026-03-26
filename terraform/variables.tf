@@ -33,3 +33,19 @@ variable "s3_input_key" {
   type        = string
   default     = "city_temperature.csv"
 }
+
+# ---------------------------------------------------------------------------
+# Feature flags – compute engines
+# ---------------------------------------------------------------------------
+
+variable "enable_glue_athena" {
+  description = "Create Glue crawler + Athena workgroup"
+  type        = bool
+  default     = false
+}
+
+variable "enable_trino" {
+  description = "Create Trino coordinator on ECS Fargate"
+  type        = bool
+  default     = false
+}

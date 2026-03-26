@@ -21,7 +21,7 @@ output "push_and_run_commands" {
       | docker login --username AWS --password-stdin ${aws_ecr_repository.app.repository_url}
 
     # 2. Build and push image
-    docker build -t ${aws_ecr_repository.app.repository_url}:latest ..
+    docker build -t ${aws_ecr_repository.app.repository_url}:latest data_setup/
     docker push ${aws_ecr_repository.app.repository_url}:latest
 
     # 3. Run Fargate Spot task
