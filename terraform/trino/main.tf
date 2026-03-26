@@ -104,6 +104,11 @@ resource "aws_ecs_task_definition" "trino" {
     image     = "trinodb/trino:latest"
     essential = true
 
+    entryPoint = ["/bin/sh", "-c"]
+    command    = [
+      "node_id=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16); grep -q '^node.id=' /etc/trino/node.properties 2>/dev/null || echo \"node.id=$node_id\" >> /etc/trino/node.properties; grep -q 'http-server.process-forwarded' /etc/trino/config.properties 2>/dev/null || echo 'http-server.process-forwarded=true' >> /etc/trino/config.properties; exec /usr/lib/trino/bin/run-trino"
+    ]
+
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]
 
     logConfiguration = {
@@ -118,19 +123,19 @@ resource "aws_ecs_task_definition" "trino" {
 }
 
 # ---------------------------------------------------------------------------
-# Security Group (allows inbound 8080 from within VPC)
+# Security Groups
 # ---------------------------------------------------------------------------
 
-resource "aws_security_group" "trino" {
-  name        = "${var.app_name}-trino-sg"
-  description = "Trino coordinator"
+resource "aws_security_group" "trino_alb" {
+  name        = "${var.app_name}-trino-alb-sg"
+  description = "Trino ALB"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.default.cidr_block]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -138,6 +143,64 @@ resource "aws_security_group" "trino" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_security_group" "trino" {
+  name        = "${var.app_name}-trino-sg"
+  description = "Trino coordinator"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.trino_alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Application Load Balancer
+# ---------------------------------------------------------------------------
+
+resource "aws_lb" "trino" {
+  name               = "${var.app_name}-trino-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.trino_alb.id]
+  subnets            = data.aws_subnets.default.ids
+}
+
+resource "aws_lb_target_group" "trino" {
+  name        = "${var.app_name}-trino-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/v1/info"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    interval            = 30
+  }
+}
+
+resource "aws_lb_listener" "trino" {
+  load_balancer_arn = aws_lb.trino.arn
+  port              = 8080
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.trino.arn
   }
 }
 
@@ -157,6 +220,14 @@ resource "aws_ecs_service" "trino" {
     security_groups  = [aws_security_group.trino.id]
     assign_public_ip = true
   }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.trino.arn
+    container_name   = "trino"
+    container_port   = 8080
+  }
+
+  depends_on = [aws_lb_listener.trino]
 }
 
 # ---------------------------------------------------------------------------
@@ -165,4 +236,8 @@ resource "aws_ecs_service" "trino" {
 
 output "trino_service_name" {
   value = aws_ecs_service.trino.name
+}
+
+output "trino_url" {
+  value = "http://${aws_lb.trino.dns_name}:8080"
 }
